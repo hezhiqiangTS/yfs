@@ -1,0 +1,58 @@
+[granter thread] wait on condition
+[lock_server::acquire] acquire request from clt 30061 for lock a
+[lock_server::acquire] new lock_name :a
+Construct Lock a
+[helper_enq] signal granter thread.
+[communicator thread] lock a is locked now
+[granter thread] wait on condition
+[lock_server::release] release request from clt 30061 for lock a
+[lock_server::release] clt 30061 release lock a safely
+[~lock] Delete lock a
+[lock_server::acquire] acquire request from clt 30061 for lock a
+[lock_server::acquire] new lock_name :a
+Construct Lock a
+[helper_enq] signal granter thread.
+[communicator thread] lock a is locked now
+[granter thread] wait on condition
+[lock_server::release] release request from clt 30061 for lock a
+[lock_server::release] clt 30061 release lock a safely
+[~lock] Delete lock a
+[lock_server::acquire] acquire request from clt 30061 for lock a
+[lock_server::acquire] new lock_name :a
+Construct Lock a
+[helper_enq] signal granter thread.
+[communicator thread] lock a is locked now
+[granter thread] wait on condition
+[lock_server::acquire] acquire request from clt 30061 for lock b
+[lock_server::acquire] new lock_name :b
+Construct Lock b
+[lock_server::acquire] acquire request from clt 30061 for lock b[helper_enq] signal granter thread.
+
+[communicator thread] lock b is locked now
+[granter thread] wait on condition
+[lock_server::release] release request from clt 30061 for lock b
+[lock_server::release] clt 30061 release lock b safely
+[communicator thread] lock b is locked now
+[lock_server::release] release request from clt 30061 for lock a
+[lock_server::release] clt 30061 release lock a safely
+[~lock] Delete lock a
+[lock_server::acquire] acquire request from clt 30061 for lock a
+[lock_server::acquire] new lock_name :a
+Construct Lock a
+[lock_server::acquire] acquire request from clt 9835 for lock a
+[lock_server::acquire] acquire request from clt 24013 for lock a
+[lock_server::acquire] acquire request from clt 28082 for lock a
+[lock_server::acquire] acquire request from clt 7291 for lock a
+[lock_server::acquire] acquire request from clt 21940 for lock a
+[helper_enq] signal granter thread.
+[helper_enq] signal granter thread.
+[lock_server::acquire] acquire request from clt 20270 for lock a
+[helper_enq] signal granter thread.
+[helper_enq] signal granter thread.
+[helper_enq] signal granter thread.
+[helper_enq] signal granter thread.
+[helper_enq] signal granter thread.
+[lock_server::acquire] acquire request from clt 1815 for lock a
+[helper_enq] signal granter thread.
+[lock_server::acquire] acquire request from clt 24342 for lock a
+[helper_enq] signal granter thread.
