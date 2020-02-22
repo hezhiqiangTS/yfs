@@ -27,10 +27,10 @@ lock_client::lock_client(std::string xdst) {
   gettimeofday(&tv, NULL);
   srandom(tv.tv_usec);
   int rlock_port = ((random() % 32000) | (0x1 << 10));
-
+  std::cout << "rlock_port " << rlock_port << std::endl;
   std::ostringstream tmp;
   tmp << rlock_port;
-  id = tmp.str();
+  port = tmp.str();
   rpcs *rlsrpc = new rpcs(htons(rlock_port));
   // lock_client handles the grant rpc request from the lock_server
   rlsrpc->reg(lock_protocol::grant, this, &lock_client::grant);
@@ -38,7 +38,7 @@ lock_client::lock_client(std::string xdst) {
 
 int lock_client::stat(std::string name) {
   int r;
-  int ret = cl->call(lock_protocol::stat, id, name, r);
+  int ret = cl->call(lock_protocol::stat, port, name, r);
   assert(ret == lock_protocol::OK);
   return r;
 }
@@ -55,42 +55,62 @@ lock_protocol::status lock_client::acquire(std::string name) {
     lock_item = lock_pos->second;
   }
   assert(pthread_mutex_unlock(&lock_map_m) == 0);
-
+  pthread_mutex_lock(&lock_item->lock_m);
   while (1) {
-    assert(pthread_mutex_lock(&lock_map_m) == 0);
-    pthread_mutex_trylock(&lock_item->lock_m);
-
     if (lock_item->s == lock_status::FREE) {
       lock_item->s = lock_status::LOCKED;
-      pthread_mutex_unlock(&lock_item->lock_m);
+      lock_item->own_th = pthread_self();
+      std::cout << "[lock_client::acquire] " << port << " got lock " << name
+                << std::endl;
+      // pthread_mutex_unlock(&lock_map_m);
       break;
     } else if (lock_item->s == lock_status::ABSENT) {
       int r;
-      int ret = cl->call(lock_protocol::acquire, id, name, r);
-      lock_item->s = lock_status::ACQUIRING;
-      pthread_mutex_unlock(&lock_map_m);
-      pthread_cond_wait(&lock_item->lock_c, &lock_item->lock_m);
-    } else {
-      int r;
-      int ret = cl->call(lock_protocol::acquire, id, name, r);
-      pthread_mutex_unlock(&lock_map_m);
+      int ret = cl->call(lock_protocol::acquire, port, name, r);
+      if (ret == lock_protocol::OK) {
+        lock_item->s = lock_status::ACQUIRING;
+        std::cout << "[lock_client::acquire] " << port << " acquiring lock "
+                  << name << std::endl;
+        pthread_cond_wait(&lock_item->lock_c, &lock_item->lock_m);
+        // std::cout << "Waked Up\n";
+      }
+    } else if (lock_item->s == lock_status::ACQUIRING ||
+               lock_item->s == lock_status::LOCKED) {
+      std::cout << "123\n";
       pthread_cond_wait(&lock_item->lock_c, &lock_item->lock_m);
     }
   }
-  assert(pthread_mutex_unlock(&lock_map_m) == 0);
-
+  // std::cout << "end\n";
+  pthread_mutex_unlock(&lock_item->lock_m);
   return lock_protocol::OK;
 }
 
 // release lock
 lock_protocol::status lock_client::release(std::string name) {
-  int r;
-  int ret = cl->call(lock_protocol::release, id, name, r);
-  auto lock_item = lock_map.find(name)->second;
-  pthread_mutex_lock(&lock_item->lock_m);
-  lock_item->s = lock_status::ABSENT;
-  pthread_mutex_unlock(&lock_item->lock_m);
-  // /pthread_cond_signal(&lock_c);
+  // pthread_mutex_lock(&lock_map_c);
+  auto lock_item = lock_map.find(name);
+
+  if (lock_item != lock_map.end()) {
+    while (lock_item->second->s == lock_status::LOCKED) {
+      if (lock_item->second->own_th == pthread_self()) {
+        pthread_mutex_lock(&lock_item->second->lock_m);
+        int r;
+        int ret = cl->call(lock_protocol::release, port, name, r);
+        if (ret == lock_protocol::OK) {
+          lock_item->second->s = lock_status::ABSENT;
+          std::cout << "[lock_client::release] " << port << " released lock "
+                    << name << std::endl;
+          pthread_mutex_unlock(&lock_item->second->lock_m);
+          pthread_cond_signal(&lock_item->second->lock_c);
+          break;
+        }
+      } else {
+        return lock_protocol::RETRY;
+      }
+    }
+  } else {
+    return lock_protocol::RETRY;
+  }
   return lock_protocol::OK;
 }
 
@@ -98,9 +118,15 @@ lock_protocol::status lock_client::release(std::string name) {
 // signal thead waiting for lock
 // registerd in rpcs of lock_client
 lock_protocol::status lock_client::grant(std::string name, int &dummy) {
-  auto lock = *(lock_map.find(name));
-  lock.second->s = lock_status::FREE;
-  assert(pthread_cond_signal(&lock.second->lock_c) == 0);
+  auto lock_sp = lock_map.find(name)->second;
+  pthread_mutex_lock(&lock_sp->lock_m);
+  lock_sp->s = lock_status::FREE;
+  pthread_mutex_unlock(&lock_sp->lock_m);
+  dummy = 1;
+  assert(pthread_cond_signal(&lock_sp->lock_c) == 0);
+  std::cout << "[lock_client::grant] " << port << " got grant " << name
+            << std::endl;
+
   return lock_protocol::OK;
 }
 

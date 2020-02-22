@@ -10,6 +10,7 @@
 #include <iostream>
 #include <list>
 #include <map>
+#include <memory>
 #include "chan.h"
 #include "marshall.h"
 
@@ -78,7 +79,7 @@ class rpcc {
   void update_xid_rep(unsigned int xid);
 
  public:
-  rpcc(sockaddr_in _dst, bool _debug = true);
+  rpcc(sockaddr_in _dst, bool _debug = false);
   ~rpcc();
 
   void setlossy(bool x);
@@ -231,7 +232,7 @@ class rpcs {
   pthread_cond_t delete_c;
 
   // provide at most once semantics by maintaining a window of replies
-  // per client that that client hasn't ackwnowledged receiving yet.
+  // per client that client hasn't ackwnowledged receiving yet.
   pthread_mutex_t reply_window_m;  // protect reply window et al
   int nonce;
   struct reply_t {
@@ -243,7 +244,7 @@ class rpcs {
     marshall rep;
     unsigned int xid;
   };
-  std::map<unsigned int, std::list<reply_t *> > reply_window;
+  std::map<unsigned int, std::list<std::shared_ptr<reply_t>>> reply_window;
   void free_reply_window(void);
   void add_reply(unsigned int clt_nonce, unsigned int xid, marshall &rep);
   bool checkduplicate_and_update(unsigned int clnt_nonce, unsigned int xid,
@@ -272,7 +273,7 @@ class rpcs {
   void dispatch(junk *);
 
  public:
-  rpcs(unsigned int port, bool _debug = true);
+  rpcs(unsigned int port, bool _debug = false);
   ~rpcs();
 
   void set_vivaldi(vivaldi *v) { _vivaldi = v; }

@@ -110,7 +110,6 @@ void cchan::done() {
 // 对于一次请求，5% 的概率不发送，9.5% 的概率延迟发送
 // 4.75 % 的概率发送两次
 void cchan::send(std::string pdu) {
-  /*
   if (setup(dst)) {
     if (lossy_percent) {
       // 产生一个随机数，小于 lossy_percent 就不发送
@@ -125,8 +124,9 @@ void cchan::send(std::string pdu) {
       if ((random() % 100) < lossy_percent) {
         ch->send(pdu);
       }
-    }*/
-  ch->send(pdu);
+    }
+    ch->send(pdu);
+  }
 }
 
 // copy PDUs from a tcpchan to inq

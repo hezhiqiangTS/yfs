@@ -17,6 +17,7 @@
 #include <sys/select.h>
 #include <time.h>
 #include <list>
+#include <memory>
 #include <vector>
 
 rpcc::rpcc(sockaddr_in _dst, bool _debug)
@@ -54,11 +55,11 @@ rpcc::rpcc(sockaddr_in _dst, bool _debug)
 
   xid_rep_window.push_back(0);
 
-  if (debug) printf("rpcc: my nonce %d\n", clt_nonce);
+  if (debug) printf("[rpcc] my nonce %d\n", clt_nonce);
 }
 
 rpcc::~rpcc() {
-  if (debug) printf("~rpcc\n");
+  // if (debug) printf("~rpcc\n");
 
   assert(pthread_cancel(th_clock_loop) == 0);
   assert(pthread_cancel(th_chan_loop) == 0);
@@ -293,7 +294,9 @@ int rpcc::call1(unsigned int proc, const marshall &req, unmarshall &rep,
   pthread_mutex_unlock(&ca.m);
 
   assert(pthread_mutex_lock(&m) == 0);
+  // 从 calls 中删除当前 xid，防止收到重复回答
   calls.erase(myxid);
+
   if (destroy_wait) {
     assert(pthread_cond_signal(&destroy_wait_c) == 0);
   }
@@ -454,7 +457,7 @@ rpcs::rpcs(unsigned int port, bool _debug)
 }
 
 rpcs::~rpcs() {
-  if (debug) printf("~rpcs\n");
+  // if (debug) printf("~rpcs\n");
   assert(pthread_cancel(th_loop) == 0);
   assert(pthread_mutex_lock(&delete_m) == 0);
   deleting = true;
@@ -473,6 +476,7 @@ rpcs::~rpcs() {
   assert(pthread_mutex_destroy(&procs_m) == 0);
 
   if (debug) printf("~rpcs done\n");
+  std::cout << "~rpcs done\n";
 }
 
 void rpcs::inc_nthread() {
@@ -561,8 +565,8 @@ void rpcs::dispatch(junk *j) {
   assert(pthread_mutex_unlock(&procs_m) == 0);
 
   if (debug)
-    printf("rpc %u (last_rep %u) from clt %u for srv instance %u \n", xid,
-           rep_xid, clt_nonce, srv_nonce);
+    printf("[rpcs] rpc %u (last_rep %u) from clt %u for srv instance %u \n",
+           xid, rep_xid, clt_nonce, srv_nonce);
 
   if (nonce != 0 && srv_nonce != 0 && srv_nonce != nonce) {
     if (debug)
@@ -578,15 +582,19 @@ void rpcs::dispatch(junk *j) {
                                 rep1)) {
     if (old) {  // very old request; don't have response anymore
       if (debug) printf("very old request %u from %u\n", xid, clt_nonce);
-      rep1 << xid;
+      std::cout << "old xid " << clt_nonce << ':' << xid << " ignored"
+                << std::endl;
+      // ignore
       rep1 << rpc_const::atmostonce_failure;
       chan.send(rep1.str(), channo);
-    } else if (rep_present) {  // duplicate and we still have the response
+      goto exit;
+    } else {  // duplicate and we still have the response
+      // retransmit
+      std::cout << "old xid " << clt_nonce << ':' << xid << " retransmit"
+                << std::endl;
       chan.send(rep1.str(), channo);
-    } else {
-      // server is working on this request
+      goto exit;
     }
-    goto exit;
   }
 
   if (counting) {
@@ -614,41 +622,33 @@ exit:
 }
 
 void rpcs::add_reply(unsigned int clt_nonce, unsigned int xid, marshall &rep) {
-  std::list<reply_t *>::iterator it;
-
   // remember the reply for this xid.
   assert(pthread_mutex_lock(&reply_window_m) == 0);
-  // std::cout << "add reply\n";
   // new clt new xid
+  std::cout << "[rpcs::add_reply] " << clt_nonce << ' ' << xid << std::endl;
   if (reply_window.count(clt_nonce) == 0) {
-    std::list<reply_t *> reply_l;
-    reply_t *reply = new reply_t(xid);
-    reply->rep = rep;
-    reply_l.push_back(reply);
+    std::list<std::shared_ptr<rpcs::reply_t>> reply_l;
+    auto reply_sp = std::make_shared<reply_t>(xid);
+    reply_sp->rep = rep;
+    reply_l.push_back(reply_sp);
     reply_window[clt_nonce] = reply_l;
     assert(pthread_mutex_unlock(&reply_window_m) == 0);
     // std::cout << "reply_window_m unlocked" << std::endl;
     return;
   }
-  reply_t *reply = new reply_t(xid);
-  reply->rep = rep;
-  reply_window[clt_nonce].push_back(reply);
+  auto reply_sp = std::make_shared<reply_t>(xid);
+  reply_sp->rep = rep;
+  reply_window[clt_nonce].push_back(reply_sp);
 
   assert(pthread_mutex_unlock(&reply_window_m) == 0);
   return;
 }
 
 void rpcs::free_reply_window(void) {
-  std::map<unsigned int, std::list<reply_t *> >::iterator clt;
-  std::list<reply_t *>::iterator it;
+  // std::map < unsigned int, std::list<std::shared_ptr<reply_t>>::iterator clt;
+  // std::list<reply_t *>::iterator it;
 
   assert(pthread_mutex_lock(&reply_window_m) == 0);
-  for (clt = reply_window.begin(); clt != reply_window.end(); clt++) {
-    for (it = clt->second.begin(); it != clt->second.end(); it++) {
-      delete *it;
-    }
-    clt->second.clear();
-  }
   reply_window.clear();
   assert(pthread_mutex_unlock(&reply_window_m) == 0);
 }
@@ -659,41 +659,36 @@ bool rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
   // check if xid is a duplicate, and if not update list of received xid, so
   // that checking and update is atomic.  xid_rep tells srv which replies
   // has received and the server can forget about.
+  return false;
   assert(pthread_mutex_lock(&reply_window_m) == 0);
-  // std::cout << "check duplicate\n";
-
+  std::cout << "clt_nonce " << clt_nonce << " xid: " << xid
+            << " xid_rep: " << xid_rep << std::endl;
   // new clt_nonce
   if (reply_window.count(clt_nonce) == 0) {
-    // std::cout << "new clt_nonce " << clt_nonce << std::endl;
     assert(pthread_mutex_unlock(&reply_window_m) == 0);
     return false;
   }
 
   // old clt_nonce
   bool r = false;
-  auto rep_list = reply_window[clt_nonce];
-  for (auto s = rep_list.begin(); s != rep_list.end(); s++) {
-    if ((*s)->xid == xid_rep) {
-      //    std::cout << "Got response " << clt_nonce << " " << xid_rep <<
-      //    std::endl;
-      (*s)->rep_present = true;
-      // r = true;
-    }
-    if ((*s)->xid == xid) {  // old clt_nonce:xid
-
-      if ((*s)->rep_present) {  // 说明该请求之前已经得到过回复
-                                // 本次请求为
-        std::cout << clt_nonce << " " << xid << " duplicate" << std::endl;
-        old = true;
-        rep = (*s)->rep;
-      } else {  // svr didn't got responce
-        //   std::cout << "retransmit clt_nonce " << clt_nonce << " xid " << xid
-        // << std::endl;
-        // rep_present = true;
-        rep = (*s)->rep;
-      }
+  auto &rep_list = reply_window[clt_nonce];
+  auto s = rep_list.begin();
+  while (s != rep_list.end()) {
+    if ((*s)->xid > xid) {
+      // std::cout << clt_nonce << " " << xid << " duplicate" << std::endl;
       r = true;
+      old = true;
+      break;
+    } else if ((*s)->xid == xid) {  // 需要 retransmit
+      rep_present = true;
+      rep = (*s)->rep;
+      r = true;
+      break;
+    } else if ((*s)->xid <= xid_rep) {
+      s = rep_list.erase(s);
+      continue;
     }
+    s++;
   }
   pthread_mutex_unlock(&reply_window_m);
   return r;
@@ -727,7 +722,7 @@ void rpcs::loop() {
 }
 
 int rpcs::bind(int a, int &r) {
-  if (debug) printf("rpcs::bind called nonce %u\n", nonce);
+  // if (debug) printf("rpcs::bind called nonce %u\n", nonce);
   r = nonce;
   return 0;
 }

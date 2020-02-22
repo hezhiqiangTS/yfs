@@ -155,11 +155,22 @@ rpc.o: ../rpc/rpc.cc /usr/include/stdc-predef.h ../rpc/rpc.h \
  /usr/include/c++/7/utility /usr/include/c++/7/bits/stl_relops.h \
  /usr/include/c++/7/array /usr/include/c++/7/bits/uses_allocator.h \
  /usr/include/c++/7/bits/invoke.h /usr/include/c++/7/bits/stl_multimap.h \
- ../rpc/chan.h ../rpc/fifo.h /usr/include/assert.h \
- /usr/include/x86_64-linux-gnu/sys/time.h ../rpc/marshall.h \
- /usr/include/c++/7/sstream /usr/include/c++/7/bits/sstream.tcc \
- /usr/include/c++/7/vector /usr/include/c++/7/bits/stl_construct.h \
+ /usr/include/c++/7/memory /usr/include/c++/7/bits/stl_construct.h \
  /usr/include/c++/7/bits/stl_uninitialized.h \
+ /usr/include/c++/7/bits/stl_tempbuf.h \
+ /usr/include/c++/7/bits/stl_raw_storage_iter.h \
+ /usr/include/c++/7/ext/concurrence.h \
+ /usr/include/c++/7/bits/unique_ptr.h \
+ /usr/include/c++/7/bits/shared_ptr.h \
+ /usr/include/c++/7/bits/shared_ptr_base.h \
+ /usr/include/c++/7/bits/refwrap.h \
+ /usr/include/c++/7/bits/shared_ptr_atomic.h \
+ /usr/include/c++/7/bits/atomic_base.h \
+ /usr/include/c++/7/bits/atomic_lockfree_defines.h \
+ /usr/include/c++/7/backward/auto_ptr.h ../rpc/chan.h ../rpc/fifo.h \
+ /usr/include/assert.h /usr/include/x86_64-linux-gnu/sys/time.h \
+ ../rpc/marshall.h /usr/include/c++/7/sstream \
+ /usr/include/c++/7/bits/sstream.tcc /usr/include/c++/7/vector \
  /usr/include/c++/7/bits/stl_vector.h \
  /usr/include/c++/7/bits/stl_bvector.h /usr/include/c++/7/bits/vector.tcc \
  ../rpc/method_thread.h /usr/include/string.h /usr/include/strings.h \

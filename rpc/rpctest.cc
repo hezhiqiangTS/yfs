@@ -240,7 +240,7 @@ void failure_test() {
   assert(client1->bind(rpcc::to(3000)) < 0);
 
   delete client1;
-
+  std::cout << "delete client1\n";
   startserver(port);
 
   std::string rep;
@@ -248,6 +248,7 @@ void failure_test() {
   assert(intret == rpc_const::atmostonce_failure);
 
   delete client;
+  std::cout << "delete client\n";
 
   client = new rpcc(dst);
   assert(client->bind() >= 0);
@@ -268,12 +269,15 @@ void failure_test() {
   sleep(1);
 
   delete server;
+  std::cout << "delete server\n";
 
   for (int i = 0; i < nt; i++) {
+    std::cout << i << std::endl;
     assert(pthread_join(th[i], NULL) == 0);
   }
 
   delete client;
+  std::cout << "delete clinet  line 278\n";
   startserver(port);
   client = new rpcc(dst);
   assert(client->bind() >= 0);

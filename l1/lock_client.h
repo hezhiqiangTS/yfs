@@ -72,7 +72,7 @@ class lock;
 class lock_client {
  private:
   int rlock_port;
-  std::string id;
+  std::string port;
 
   rpcc *cl;
   rpcs *rlsrpc;
@@ -105,6 +105,7 @@ class lock {
   pthread_mutex_t lock_m;
   pthread_cond_t lock_c;
   status s;
+  pthread_t own_th;
   std::string name;
 };
 

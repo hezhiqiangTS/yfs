@@ -23,7 +23,7 @@ class lock_server {
  public:
   lock_server();
   struct temp {
-    temp(std::shared_ptr<lock> _lock_item, const std::string _clt,
+    temp(std::shared_ptr<lock> _lock_item, const std::string& _clt,
          lock_server* _ls)
         : lock_item(_lock_item), clt(_clt), ls(_ls){};
     std::shared_ptr<lock> lock_item;
