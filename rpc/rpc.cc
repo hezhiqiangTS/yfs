@@ -659,7 +659,7 @@ bool rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
   // check if xid is a duplicate, and if not update list of received xid, so
   // that checking and update is atomic.  xid_rep tells srv which replies
   // has received and the server can forget about.
-  return false;
+  // return false;
   assert(pthread_mutex_lock(&reply_window_m) == 0);
   std::cout << "clt_nonce " << clt_nonce << " xid: " << xid
             << " xid_rep: " << xid_rep << std::endl;
