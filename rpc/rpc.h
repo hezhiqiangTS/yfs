@@ -234,6 +234,7 @@ class rpcs {
   // provide at most once semantics by maintaining a window of replies
   // per client that client hasn't ackwnowledged receiving yet.
   pthread_mutex_t reply_window_m;  // protect reply window et al
+  pthread_cond_t reply_window_c;
   int nonce;
   struct reply_t {
     reply_t(unsigned int _xid) {

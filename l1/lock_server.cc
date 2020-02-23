@@ -32,10 +32,8 @@ static void *communicator(void *x) {
   }
   // xclt 就是对应客户端中 rpcs *rlsrpc 的端口号
   std::string xclt = lock_sp->wq_popfront();
-  lock_sp->s = lock_status::LOCKED;
+  //->s = lock_status::LOCKED;
   lock_sp->owner = xclt;
-  std::cout << "[comunicator thread] lock " << lock_sp->name
-            << " is locked on srv" << std::endl;
   // 创建一个 rpcc
   sockaddr_in dstsock;
   make_sockaddr(xclt.c_str(), &dstsock);
@@ -46,15 +44,12 @@ static void *communicator(void *x) {
   // grant lock_name to clt
 
   int r;
-  while (true) {
-    auto ret = cl.call(lock_protocol::grant, lock_sp->name, r);
-    if (ret == lock_protocol::OK && r == 1) {
-      std::cout << "[comunicator thread] lock " << lock_sp->name
-                << " has been granted to " << xclt << std::endl;
-      break;
-    }
+
+  auto ret = cl.call(lock_protocol::grant, lock_sp->name, r);
+  if (ret == lock_protocol::OK && r == 1) {
+    std::cout << "[comunicator thread] lock " << lock_sp->name
+              << " has been granted to " << xclt << std::endl;
   }
-  // pthread_cond_broadcast(&lock->waitq_c);
   pthread_mutex_unlock(&lock_sp->lock_m);
   return NULL;
 }
@@ -70,9 +65,9 @@ void lock_server::granter() {
       pthread_cond_wait(&workq_c, &workq_m);
     }
     for (auto lock_item : workq) {
-      if (lock_item->s == lock_status::FREE) {
+      if (lock_item->s == lock_status::LOCKED) {
         std::cout << "[lock_server::granter] lock " << lock_item->name
-                  << " is FREE" << std::endl;
+                  << " is LOCKED on server" << std::endl;
         pthread_t th;
         pthread_create(&th, NULL, communicator, (void *)&lock_item);
         pthread_detach(th);
@@ -95,25 +90,25 @@ lock_protocol::status lock_server::acquire(std::string port,
                                            std::string lock_name, int &r) {
   std::cout << "[lock_server::acquire] acquire lock " << lock_name
             << " from clt " << port << std::endl;
-  // pthread_mutex_lock(&lock_map_m);
+  pthread_mutex_lock(&lock_map_m);
   auto pos_lock = lock_map.find(lock_name);
 
   // new lock_name
   if (pos_lock == lock_map.cend()) {
-    pthread_mutex_lock(&lock_map_m);
     std::cout << "[lock_server::acquire] new lock_name :" << lock_name
               << std::endl;
     // 创建新 FREE 锁 lock(lock_name)
     auto lock_sp = std::make_shared<lock>(lock_name);
+    lock_sp->s = lock_status::LOCKED;
     lock_map.insert({lock_name, lock_sp});
+    lock_sp->waitq.push_back(port);
     pthread_mutex_unlock(&lock_map_m);
 
-    // pthread_mutex_lock(&lock_sp->lock_m);
-    lock_sp->waitq.push_back(port);
     pthread_mutex_lock(&workq_m);
     workq.push_back(lock_sp);
-    pthread_mutex_unlock(&workq_m);
     pthread_cond_signal(&workq_c);
+    pthread_mutex_unlock(&workq_m);
+
     return lock_protocol::OK;
   }
 
@@ -129,10 +124,13 @@ lock_protocol::status lock_server::acquire(std::string port,
     pthread_mutex_unlock(&lock_sp->lock_m);
   }
   if (lock_sp->s == lock_status::FREE) {
+    lock_sp->s = lock_status::LOCKED;
+    pthread_mutex_unlock(&lock_map_m);
     pthread_mutex_lock(&workq_m);
     workq.push_back(lock_sp);
     pthread_cond_signal(&workq_c);
     pthread_mutex_unlock(&workq_m);
+    return lock_protocol::OK;
   }
   pthread_mutex_unlock(&lock_map_m);
   return lock_protocol::OK;
@@ -142,34 +140,34 @@ lock_protocol::status lock_server::release(std::string clt,
                                            std::string lock_name, int &r) {
   std::cout << "[lock_server::release] release request from clt " << clt << ' '
             << "for lock " << lock_name << std::endl;
+  pthread_mutex_lock(&lock_map_m);
   auto pos_lock = lock_map.find(lock_name);
   if (pos_lock == lock_map.end()) {
     return lock_protocol::OK;
   }
   // pthread_mutex_unlock(&lock_map_m);
   auto lock_item = (*pos_lock).second;
-  pthread_mutex_lock(&lock_item->lock_m);
   if (lock_item->s == lock_status::LOCKED) {
     if (lock_item->owner == clt) {
       std::cout << "[lock_server::release] clt " << clt << " release lock "
                 << lock_name << " safely" << std::endl;
-      lock_item->s = lock_status::FREE;
-      lock_item->owner == "";
-      pthread_mutex_unlock(&lock_item->lock_m);
-
       if (lock_item->waitq.size() != 0) {
+        pthread_mutex_unlock(&lock_map_m);
         pthread_mutex_lock(&workq_m);
         workq.push_back(lock_item);
         pthread_cond_signal(&workq_c);
         pthread_mutex_unlock(&workq_m);
+        return lock_protocol::OK;
       }
+      lock_item->s = lock_status::FREE;
+      pthread_mutex_unlock(&lock_map_m);
       return lock_protocol::OK;
     } else {
       // clt is releasing a locked lock not owened by it.
       std::cout << "[lock_server::release] clt " << clt
                 << " can't release lock " << lock_name << " , owned by "
                 << lock_item->owner << std::endl;
-      pthread_mutex_unlock(&lock_item->lock_m);
+      pthread_mutex_unlock(&lock_map_m);
       return lock_protocol::OK;
     }
   }  // end locked
@@ -178,15 +176,17 @@ lock_protocol::status lock_server::release(std::string clt,
   if (lock_item->waitq.size() == 0) {
     std::cout << "[lock_server::release] lock " << lock_item->name
               << " is FREE and its waitq is empty. " << std::endl;
-    // pthread_mutex_unlock(&lock_map_m);
-    // return lock_protocol::OK;
+    pthread_mutex_unlock(&lock_map_m);
   } else {
     std::cout << "[lock_server::release] lock " << lock_item->name
               << " is FREE and its waitq is not empty. " << std::endl;
+    lock_item->s = lock_status::LOCKED;
+    pthread_mutex_unlock(&lock_map_m);
     pthread_mutex_lock(&workq_m);
     workq.push_back(lock_item);
     pthread_mutex_unlock(&workq_m);
     pthread_cond_signal(&workq_c);
   }
+
   return lock_protocol::OK;
 }

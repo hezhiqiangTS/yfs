@@ -436,6 +436,7 @@ rpcs::rpcs(unsigned int port, bool _debug)
 
   assert(pthread_mutex_init(&delete_m, 0) == 0);
   assert(pthread_cond_init(&delete_c, 0) == 0);
+  assert(pthread_cond_init(&reply_window_c, 0) == 0);
 
   // set server nonce to a random value to make this instance unique
   struct timeval tv;
@@ -588,12 +589,14 @@ void rpcs::dispatch(junk *j) {
       rep1 << rpc_const::atmostonce_failure;
       chan.send(rep1.str(), channo);
       goto exit;
-    } else {  // duplicate and we still have the response
+    } else if (rep_present) {  // duplicate and we still have the response
       // retransmit
       std::cout << "old xid " << clt_nonce << ':' << xid << " retransmit"
                 << std::endl;
       chan.send(rep1.str(), channo);
       goto exit;
+    } else {  // is working on
+      return;
     }
   }
 
@@ -630,15 +633,28 @@ void rpcs::add_reply(unsigned int clt_nonce, unsigned int xid, marshall &rep) {
     std::list<std::shared_ptr<rpcs::reply_t>> reply_l;
     auto reply_sp = std::make_shared<reply_t>(xid);
     reply_sp->rep = rep;
+    reply_sp->rep_present = true;
     reply_l.push_back(reply_sp);
     reply_window[clt_nonce] = reply_l;
     assert(pthread_mutex_unlock(&reply_window_m) == 0);
     // std::cout << "reply_window_m unlocked" << std::endl;
     return;
   }
-  auto reply_sp = std::make_shared<reply_t>(xid);
-  reply_sp->rep = rep;
-  reply_window[clt_nonce].push_back(reply_sp);
+  auto &reply_l = reply_window[clt_nonce];
+  auto i = reply_l.begin();
+  for (i; i != reply_l.end(); i++) {
+    if ((*i)->xid == xid) {
+      (*i)->rep = rep;
+      (*i)->rep_present = true;
+      break;
+    }
+  }
+  if (i == reply_l.end()) {
+    auto reply_sp = std::make_shared<reply_t>(xid);
+    reply_sp->rep = rep;
+    reply_sp->rep_present = true;
+    reply_window[clt_nonce].push_back(reply_sp);
+  }
 
   assert(pthread_mutex_unlock(&reply_window_m) == 0);
   return;
@@ -665,6 +681,11 @@ bool rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
             << " xid_rep: " << xid_rep << std::endl;
   // new clt_nonce
   if (reply_window.count(clt_nonce) == 0) {
+    std::list<std::shared_ptr<rpcs::reply_t>> reply_l;
+    auto reply_sp = std::make_shared<reply_t>(xid);
+    reply_sp->rep_present = false;
+    reply_l.push_back(reply_sp);
+    reply_window.insert({clt_nonce, reply_l});
     assert(pthread_mutex_unlock(&reply_window_m) == 0);
     return false;
   }
@@ -672,24 +693,62 @@ bool rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
   // old clt_nonce
   bool r = false;
   auto &rep_list = reply_window[clt_nonce];
-  auto s = rep_list.begin();
-  while (s != rep_list.end()) {
-    if ((*s)->xid > xid) {
-      // std::cout << clt_nonce << " " << xid << " duplicate" << std::endl;
-      r = true;
-      old = true;
+  // auto s = rep_list.begin();
+  auto pos = rep_list.begin();
+  while (pos != rep_list.end()) {
+    if ((*pos)->xid > xid_rep) {
+      auto r = std::make_shared<reply_t>(xid_rep);
+      r->rep_present = true;
+      rep_list.insert(pos, r);
       break;
-    } else if ((*s)->xid == xid) {  // 需要 retransmit
-      rep_present = true;
-      rep = (*s)->rep;
-      r = true;
+    } else if ((*pos)->xid == xid_rep) {
       break;
-    } else if ((*s)->xid <= xid_rep) {
-      s = rep_list.erase(s);
-      continue;
+    } else {
+      pos = rep_list.erase(pos);
     }
-    s++;
   }
+  if (pos == rep_list.end()) {
+    auto r = std::make_shared<reply_t>(xid_rep);
+    r->rep_present = true;
+    rep_list.push_back(r);
+  }
+
+  // rep_list.front() 表示 rpcs 收到的最大 xid_rep
+  // 该值应该等于 rpcc reply_window.front()
+  if (rep_list.front()->xid >= xid) {
+    old = true;
+    pthread_mutex_unlock(&reply_window_m);
+    return true;
+  }
+
+  pos = rep_list.begin();
+  while (pos != rep_list.end()) {  // rep_list 中的元素单调递增
+    if ((*pos)->xid == xid) {
+      r = true;
+      if ((*pos)->rep_present == true) {
+        // 保存有 rep，且未收到 ack
+        // /std::cout << clt_nonce << " " << xid << " restransmit" << std::endl;
+        rep = (*pos)->rep;
+        rep_present = true;
+        break;
+      } else {  // rep 还未保存（正在处理）
+        break;
+      }
+    } else if ((*pos)->xid > xid) {
+      auto n = std::make_shared<reply_t>(xid);
+      n->rep_present = false;
+      rep_list.insert(pos, n);
+      break;
+    } else {
+      pos++;
+    }
+  }
+  if (pos == rep_list.end()) {
+    auto n = std::make_shared<reply_t>(xid);
+    n->rep_present = false;
+    rep_list.push_back(n);
+  }
+
   pthread_mutex_unlock(&reply_window_m);
   return r;
 }
