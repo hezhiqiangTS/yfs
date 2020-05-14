@@ -10,11 +10,12 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <fuse_lowlevel.h>
+#include <fuse/fuse_lowlevel.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
 #include "yfs_client.h"
 
 int myid;
@@ -124,7 +125,7 @@ void fuseserver_statfs(fuse_req_t req) {
   buf.f_namemax = 255;
   buf.f_bsize = 512;
 
-  fuse_reply_statfs(req, &buf);
+  fuse_reply_statfs(req, (const struct statfs *)&buf);
 }
 
 struct fuse_lowlevel_ops fuseserver_oper;
@@ -182,7 +183,7 @@ int main(int argc, char *argv[]) {
 
   args.allocated = 0;
 
-  fd = fuse_mount(mountpoint, &args);
+  fd = fuse_mount(mountpoint, (const char *)&(args.argv));
   if (fd == -1) {
     fprintf(stderr, "fuse_mount failed\n");
     exit(1);
@@ -190,8 +191,8 @@ int main(int argc, char *argv[]) {
 
   struct fuse_session *se;
 
-  se =
-      fuse_lowlevel_new(&args, &fuseserver_oper, sizeof(fuseserver_oper), NULL);
+  se = fuse_lowlevel_new((const char *)&(args.argv), &fuseserver_oper,
+                         sizeof(fuseserver_oper), NULL);
   if (se == 0) {
     fprintf(stderr, "fuse_lowlevel_new failed\n");
     exit(1);

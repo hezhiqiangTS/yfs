@@ -1,13 +1,13 @@
 // unmarshall RPCs and hand them to extent_server
 
-#include "rpc.h"
 #include <arpa/inet.h>
-#include "extent_server.h"
+#include <unistd.h>
 
-int
-main(int argc, char *argv[])
-{
-  if(argc != 2){
+#include "extent_server.h"
+#include "rpc.h"
+
+int main(int argc, char *argv[]) {
+  if (argc != 2) {
     fprintf(stderr, "Usage: %s port\n", argv[0]);
     exit(1);
   }
@@ -22,6 +22,5 @@ main(int argc, char *argv[])
   server.reg(extent_protocol::put, &ls, &extent_server::put);
   server.reg(extent_protocol::remove, &ls, &extent_server::remove);
 
-  while(1)
-    sleep(1000);
+  while (1) sleep(1000);
 }

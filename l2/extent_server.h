@@ -3,14 +3,15 @@
 #ifndef extent_server_h
 #define extent_server_h
 
-#include <string>
 #include <map>
+#include <string>
+
 #include "extent_protocol.h"
 
 class extent_server {
-
-private:
+ private:
   std::string filename(extent_protocol::extentid_t id);
+
  public:
   extent_server();
 
@@ -20,11 +21,4 @@ private:
   int remove(extent_protocol::extentid_t id, int &);
 };
 
-#endif 
-
-
-
-
-
-
-
+#endif

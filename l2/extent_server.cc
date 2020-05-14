@@ -1,12 +1,14 @@
 // the extent server implementation
 
 #include "extent_server.h"
+
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include <sstream>
 
 extent_server::extent_server() {}
