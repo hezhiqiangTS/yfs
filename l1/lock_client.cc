@@ -2,12 +2,15 @@
 // see lock_client.h for protocol details.
 
 #include "lock_client.h"
+
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+
 #include <iostream>
 #include <sstream>
+
 #include "rpc.h"
 
 lock_client::lock_client(std::string xdst) {

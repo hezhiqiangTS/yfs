@@ -8,16 +8,13 @@
 // writev (for length + data)
 // tcp back-pressure to avoid huge inq
 
+#include "chan.h"
 #include <arpa/inet.h>
+#include <netinet/tcp.h>
 #include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <strings.h>
 #include <sys/types.h>
 #include <unistd.h>
-
-#include <netinet/tcp.h>
-#include "chan.h"
 #include "method_thread.h"
 
 static int get_lossy_env() {
@@ -107,20 +104,15 @@ void cchan::done() {
   assert(pthread_mutex_unlock(&ch_m) == 0);
 }
 
-// 对于一次请求，5% 的概率不发送，9.5% 的概率延迟发送
-// 4.75 % 的概率发送两次
 void cchan::send(std::string pdu) {
   if (setup(dst)) {
     if (lossy_percent) {
-      // 产生一个随机数，小于 lossy_percent 就不发送
       if ((random() % 100) < lossy_percent) {
         return;
       }
-      // 产生一个随机数，小于 10 就延迟请求
       if ((random() % 100) < 10) {
         sleep(random() % 10);  // delay request
       }
-      // 产生一个随机数，小于 lossy_percent 就发送两次
       if ((random() % 100) < lossy_percent) {
         ch->send(pdu);
       }
@@ -136,12 +128,10 @@ void cchan::tcp_loop() {
 
   pthread_cleanup_push(&cchan::cleanup_tcp_loop, (void *)this);
   while (1) {
-    // 从 tcpchan::socket 中将数据读入 pdu
     std::string pdu = ch->recv();
     if (ch->dead()) {
       break;
     } else {
-      // 将 pdu 中的数据入队列
       inq.enq(pdu);
     }
   }
@@ -401,7 +391,7 @@ std::string tcpchan::recv() {
       free(p);
       return "";
     }
-    std::string pdu(p, len);  // 用字符串 p 的前 len 个元素初始化 pdu
+    std::string pdu(p, len);
     free(p);
     return pdu;
   }

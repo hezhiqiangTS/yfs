@@ -2,15 +2,10 @@
 #define rpc_h
 
 #include <netinet/in.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <unistd.h>
-#include <iostream>
 #include <list>
 #include <map>
-#include <memory>
 #include "chan.h"
 #include "marshall.h"
 
@@ -232,9 +227,8 @@ class rpcs {
   pthread_cond_t delete_c;
 
   // provide at most once semantics by maintaining a window of replies
-  // per client that client hasn't ackwnowledged receiving yet.
+  // per client that that client hasn't ackwnowledged receiving yet.
   pthread_mutex_t reply_window_m;  // protect reply window et al
-  pthread_cond_t reply_window_c;
   int nonce;
   struct reply_t {
     reply_t(unsigned int _xid) {
@@ -245,7 +239,7 @@ class rpcs {
     marshall rep;
     unsigned int xid;
   };
-  std::map<unsigned int, std::list<std::shared_ptr<reply_t>>> reply_window;
+  std::map<unsigned int, std::list<reply_t *>> reply_window;
   void free_reply_window(void);
   void add_reply(unsigned int clt_nonce, unsigned int xid, marshall &rep);
   bool checkduplicate_and_update(unsigned int clnt_nonce, unsigned int xid,
@@ -287,18 +281,14 @@ class rpcs {
   // register a handler
   template <class S, class A1, class R>
   void reg(unsigned int proc, S *, int (S::*meth)(const A1 a1, R &r));
-
   template <class S, class A1, class A2, class R>
   void reg(unsigned int proc, S *, int (S::*meth)(const A1 a1, const A2, R &r));
-
   template <class S, class A1, class A2, class A3, class R>
   void reg(unsigned int proc, S *,
            int (S::*meth)(const A1, const A2, const A3, R &r));
-
   template <class S, class A1, class A2, class A3, class A4, class R>
   void reg(unsigned int proc, S *,
            int (S::*meth)(const A1, const A2, const A3, const A4, R &r));
-
   template <class S, class A1, class A2, class A3, class A4, class A5, class R>
   void reg(unsigned int proc, S *,
            int (S::*meth)(const A1, const A2, const A3, const A4, const A5,

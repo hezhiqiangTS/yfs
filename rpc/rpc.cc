@@ -55,11 +55,11 @@ rpcc::rpcc(sockaddr_in _dst, bool _debug)
 
   xid_rep_window.push_back(0);
 
-  if (debug) printf("[rpcc] my nonce %d\n", clt_nonce);
+  if (debug) printf("rpcc: my nonce %d\n", clt_nonce);
 }
 
 rpcc::~rpcc() {
-  // if (debug) printf("~rpcc\n");
+  if (debug) printf("~rpcc\n");
 
   assert(pthread_cancel(th_clock_loop) == 0);
   assert(pthread_cancel(th_chan_loop) == 0);
@@ -138,9 +138,9 @@ rpcc::caller::~caller() {
 
 const rpcc::TO rpcc::to_inf = {-1};
 
-// Subtract the `struct timeval' values X and Y,
-//   storing the result in RESULT.
-//   Return 1 if the difference is negative, otherwise 0.
+/* Subtract the `struct timeval' values X and Y,
+   storing the result in RESULT.
+   Return 1 if the difference is negative, otherwise 0.  */
 // taken from http://www.delorie.com/gnu/docs/glibc/libc_428.html
 int timeval_subtract(struct timeval *result, struct timeval *x,
                      struct timeval *y) {
@@ -220,7 +220,6 @@ int rpcc::call1(unsigned int proc, const marshall &req, unmarshall &rep,
   int rto = initial_rto;
   int next_rto = rto;
 
-  // deadline deadline_tv 作为timeout截止时间
   struct timespec deadline;
   struct timeval deadline_tv;
   if (to.to != -1) {
@@ -231,17 +230,10 @@ int rpcc::call1(unsigned int proc, const marshall &req, unmarshall &rep,
 
   struct timeval now, diff;
   gettimeofday(&now, NULL);
-  // 如果间隔 >= rto 或者为第一次发送
-  // rto 时长作为时间阈值，超出阈值则进入下一个伪周期
-  // rto = next_rto  next_rto *= 2
-  // 重新发送
-  // 更新 last
   while (1) {
     if (ca.done) break;
     assert(timeval_subtract(&diff, &now, &last) == 0);
     long double diff_msec = diff.tv_sec * 1000.0 + diff.tv_usec / 1000.0;
-
-    // 如果距离上次发送间隔超过 rto 或者是第一次发送
     if (diff_msec >= rto || next_rto == initial_rto) {
       rto = next_rto;
       if (rto != initial_rto)
@@ -260,8 +252,7 @@ int rpcc::call1(unsigned int proc, const marshall &req, unmarshall &rep,
     struct timeval my_deadline_tv;
     add_timeout(last, rto, &my_deadline, &my_deadline_tv);
 
-    // my next deadline is either for rxmit or dead
-    // my_deadline 取 deadline_tv 和 my_deadline_tv 中较小值
+    // my next deadline is either for rxmit or timeout
     if (to.to != -1 &&
         timeval_subtract(&diff, &deadline_tv, &my_deadline_tv) > 0) {
       my_deadline = deadline;
@@ -270,7 +261,6 @@ int rpcc::call1(unsigned int proc, const marshall &req, unmarshall &rep,
 
     assert(pthread_mutex_lock(&_timeout_lock) == 0);
     struct timeval nt_tv;
-    // _next_timeout 是被所有线程共享的计时器
     nt_tv.tv_sec = _next_timeout.tv_sec;
     nt_tv.tv_usec = _next_timeout.tv_nsec / 1000;
     if (_next_timeout.tv_sec == 0 ||
@@ -288,15 +278,13 @@ int rpcc::call1(unsigned int proc, const marshall &req, unmarshall &rep,
     if (!ca.done && to.to != -1) {
       if (timeval_subtract(&diff, &deadline_tv, &now) > 0) break;
     }
-  }  // while
+  }
 
   int intret = ca.done ? ca.intret : rpc_const::timeout_failure;
   pthread_mutex_unlock(&ca.m);
 
   assert(pthread_mutex_lock(&m) == 0);
-  // 从 calls 中删除当前 xid，防止收到重复回答
   calls.erase(myxid);
-
   if (destroy_wait) {
     assert(pthread_cond_signal(&destroy_wait_c) == 0);
   }
@@ -419,7 +407,6 @@ void rpcc::update_xid_rep(unsigned int xid) {
 compress:
   it = xid_rep_window.begin();
   for (it++; it != xid_rep_window.end(); it++) {
-    //
     if (xid_rep_window.front() + 1 == *it) xid_rep_window.pop_front();
   }
 }
@@ -436,7 +423,6 @@ rpcs::rpcs(unsigned int port, bool _debug)
 
   assert(pthread_mutex_init(&delete_m, 0) == 0);
   assert(pthread_cond_init(&delete_c, 0) == 0);
-  assert(pthread_cond_init(&reply_window_c, 0) == 0);
 
   // set server nonce to a random value to make this instance unique
   struct timeval tv;
@@ -458,7 +444,7 @@ rpcs::rpcs(unsigned int port, bool _debug)
 }
 
 rpcs::~rpcs() {
-  // if (debug) printf("~rpcs\n");
+  if (debug) printf("~rpcs\n");
   assert(pthread_cancel(th_loop) == 0);
   assert(pthread_mutex_lock(&delete_m) == 0);
   deleting = true;
@@ -477,7 +463,6 @@ rpcs::~rpcs() {
   assert(pthread_mutex_destroy(&procs_m) == 0);
 
   if (debug) printf("~rpcs done\n");
-  std::cout << "~rpcs done\n";
 }
 
 void rpcs::inc_nthread() {
@@ -503,11 +488,8 @@ void rpcs::setlossy(bool x) {
 
 handler::handler() {}
 
-// 将服务号为 proc 的处理程序 h 注册到 procs 中
-// std::map<int, handler *> procs;
 void rpcs::reg1(unsigned int proc, handler *h) {
   assert(pthread_mutex_lock(&procs_m) == 0);
-  // 确保该服务之前没有被注册过
   assert(procs.count(proc) == 0);
   procs[proc] = h;
   assert(procs.count(proc) >= 1);
@@ -541,7 +523,6 @@ void rpcs::dispatch(junk *j) {
   int srv_nonce = req.i32();
   unsigned int proc = req.i32();
   unsigned int xid = req.i32();
-  // rep_xid = xid_rep_window.front()
   unsigned int rep_xid = req.i32();
   unmarshall args(req.istr());
   marshall rep;
@@ -566,8 +547,8 @@ void rpcs::dispatch(junk *j) {
   assert(pthread_mutex_unlock(&procs_m) == 0);
 
   if (debug)
-    printf("[rpcs] rpc %u (last_rep %u) from clt %u for srv instance %u \n",
-           xid, rep_xid, clt_nonce, srv_nonce);
+    printf("rpc %u (last_rep %u) from clt %u for srv instance %u \n", xid,
+           rep_xid, clt_nonce, srv_nonce);
 
   if (nonce != 0 && srv_nonce != 0 && srv_nonce != nonce) {
     if (debug)
@@ -583,21 +564,15 @@ void rpcs::dispatch(junk *j) {
                                 rep1)) {
     if (old) {  // very old request; don't have response anymore
       if (debug) printf("very old request %u from %u\n", xid, clt_nonce);
-      std::cout << "old xid " << clt_nonce << ':' << xid << " ignored"
-                << std::endl;
-      // ignore
+      rep1 << xid;
       rep1 << rpc_const::atmostonce_failure;
       chan.send(rep1.str(), channo);
-      goto exit;
     } else if (rep_present) {  // duplicate and we still have the response
-      // retransmit
-      std::cout << "old xid " << clt_nonce << ':' << xid << " retransmit"
-                << std::endl;
       chan.send(rep1.str(), channo);
-      goto exit;
-    } else {  // is working on
-      return;
+    } else {
+      // server is working on this request
     }
+    goto exit;
   }
 
   if (counting) {
@@ -625,22 +600,22 @@ exit:
 }
 
 void rpcs::add_reply(unsigned int clt_nonce, unsigned int xid, marshall &rep) {
-  // remember the reply for this xid.
+  std::list<reply_t *>::iterator it;
+
   assert(pthread_mutex_lock(&reply_window_m) == 0);
-  // new clt new xid
-  std::cout << "[rpcs::add_reply] " << clt_nonce << ' ' << xid << std::endl;
+
   if (reply_window.count(clt_nonce) == 0) {
-    std::list<std::shared_ptr<rpcs::reply_t>> reply_l;
-    auto reply_sp = std::make_shared<reply_t>(xid);
-    reply_sp->rep = rep;
-    reply_sp->rep_present = true;
-    reply_l.push_back(reply_sp);
+    std::list<rpcs::reply_t *> reply_l;
+    auto reply_p = new reply_t(xid);
+    reply_p->rep = rep;
+    reply_p->rep_present = true;
+    reply_l.push_back(reply_p);
     reply_window[clt_nonce] = reply_l;
     assert(pthread_mutex_unlock(&reply_window_m) == 0);
-    // std::cout << "reply_window_m unlocked" << std::endl;
     return;
   }
-  auto &reply_l = reply_window[clt_nonce];
+
+  std::list<rpcs::reply_t *> &reply_l = reply_window[clt_nonce];
   auto i = reply_l.begin();
   for (i; i != reply_l.end(); i++) {
     if ((*i)->xid == xid) {
@@ -650,21 +625,28 @@ void rpcs::add_reply(unsigned int clt_nonce, unsigned int xid, marshall &rep) {
     }
   }
   if (i == reply_l.end()) {
-    auto reply_sp = std::make_shared<reply_t>(xid);
-    reply_sp->rep = rep;
-    reply_sp->rep_present = true;
-    reply_window[clt_nonce].push_back(reply_sp);
+    auto reply_p = new reply_t(xid);
+    reply_p->rep = rep;
+    reply_p->rep_present = true;
+    auto &rl = reply_window[clt_nonce];
+    rl.push_back(reply_p);
   }
 
+release:
   assert(pthread_mutex_unlock(&reply_window_m) == 0);
-  return;
 }
 
 void rpcs::free_reply_window(void) {
-  // std::map < unsigned int, std::list<std::shared_ptr<reply_t>>::iterator clt;
-  // std::list<reply_t *>::iterator it;
+  std::map<unsigned int, std::list<reply_t *>>::iterator clt;
+  std::list<reply_t *>::iterator it;
 
   assert(pthread_mutex_lock(&reply_window_m) == 0);
+  for (clt = reply_window.begin(); clt != reply_window.end(); clt++) {
+    for (it = clt->second.begin(); it != clt->second.end(); it++) {
+      delete *it;
+    }
+    clt->second.clear();
+  }
   reply_window.clear();
   assert(pthread_mutex_unlock(&reply_window_m) == 0);
 }
@@ -672,32 +654,31 @@ void rpcs::free_reply_window(void) {
 bool rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
                                      unsigned int xid_rep, bool &old,
                                      bool &rep_present, marshall &rep) {
+  // std::list<reply_t *>::iterator it;
+  bool r = false;
+
+  assert(pthread_mutex_lock(&reply_window_m) == 0);
+
   // check if xid is a duplicate, and if not update list of received xid, so
   // that checking and update is atomic.  xid_rep tells srv which replies
   // has received and the server can forget about.
-  // return false;
-  assert(pthread_mutex_lock(&reply_window_m) == 0);
-  std::cout << "clt_nonce " << clt_nonce << " xid: " << xid
-            << " xid_rep: " << xid_rep << std::endl;
-  // new clt_nonce
   if (reply_window.count(clt_nonce) == 0) {
-    std::list<std::shared_ptr<rpcs::reply_t>> reply_l;
-    auto reply_sp = std::make_shared<reply_t>(xid);
-    reply_sp->rep_present = false;
-    reply_l.push_back(reply_sp);
+    std::list<rpcs::reply_t *> reply_l;
+    auto reply_p = new reply_t(xid);
+    reply_p->rep_present = false;
+    reply_l.push_back(reply_p);
     reply_window.insert({clt_nonce, reply_l});
     assert(pthread_mutex_unlock(&reply_window_m) == 0);
     return false;
   }
 
   // old clt_nonce
-  bool r = false;
   auto &rep_list = reply_window[clt_nonce];
   // auto s = rep_list.begin();
   auto pos = rep_list.begin();
   while (pos != rep_list.end()) {
     if ((*pos)->xid > xid_rep) {
-      auto r = std::make_shared<reply_t>(xid_rep);
+      auto r = new reply_t(xid_rep);
       r->rep_present = true;
       rep_list.insert(pos, r);
       break;
@@ -708,7 +689,7 @@ bool rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
     }
   }
   if (pos == rep_list.end()) {
-    auto r = std::make_shared<reply_t>(xid_rep);
+    auto r = new reply_t(xid_rep);
     r->rep_present = true;
     rep_list.push_back(r);
   }
@@ -735,7 +716,7 @@ bool rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
         break;
       }
     } else if ((*pos)->xid > xid) {
-      auto n = std::make_shared<reply_t>(xid);
+      auto n = new reply_t(xid);
       n->rep_present = false;
       rep_list.insert(pos, n);
       break;
@@ -744,14 +725,15 @@ bool rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
     }
   }
   if (pos == rep_list.end()) {
-    auto n = std::make_shared<reply_t>(xid);
+    auto n = new reply_t(xid);
     n->rep_present = false;
     rep_list.push_back(n);
   }
 
-  pthread_mutex_unlock(&reply_window_m);
+  assert(pthread_mutex_unlock(&reply_window_m) == 0);
   return r;
 }
+
 rpcs::junk::junk(std::string xs, int xchan) : s(xs), chan(xchan) {}
 
 void rpcs::loop() {
@@ -781,11 +763,11 @@ void rpcs::loop() {
 }
 
 int rpcs::bind(int a, int &r) {
-  // if (debug) printf("rpcs::bind called nonce %u\n", nonce);
+  if (debug) printf("rpcs::bind called nonce %u\n", nonce);
   r = nonce;
   return 0;
 }
-// 将值 x 对应的 ASCII 字符压入 s
+
 void marshall::rawbyte(unsigned x) { s.put((unsigned char)x); }
 
 void marshall::rawbytes(const char *p, int n) { s.write(p, n); }
@@ -811,8 +793,6 @@ marshall &operator<<(marshall &m, short x) {
   return m;
 }
 
-// 将 32 位的 x 按字节编码
-// 先把低字节对应的字符压入 s
 marshall &operator<<(marshall &m, unsigned int x) {
   m.rawbyte(x & 0xff);
   m.rawbyte((x >> 8) & 0xff);
